@@ -7,7 +7,7 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "icons": "node scripts/icons.mjs"
+    "brand": "node scripts/brand.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
