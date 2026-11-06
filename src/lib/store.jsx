@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { uid } from './core'
+import { DEFAULT_STATUSES, uid } from './core'
 
 // Armazenamento: cache local (localStorage) + sincronização com a API (Vercel + MongoDB).
 // O app funciona offline; as alterações sobem quando houver conexão. Em conflito, vale a última gravação.
@@ -7,13 +7,20 @@ const KEY = 'homecare:v1'
 const DIRTY = 'homecare:dirty'
 const ROLE = 'homecare:role'
 
+// Cores das empresas: tons da logo (azul e rosa).
+const interne = () => ({ id: uid(), name: 'Interne', color: '#8fdcbc', logo: '/images/Interne.png', layout: 'interne', headerText: 'HOSPITAL DA AERONAUTICA', cutoffDay: 0, discounts: [] })
+const OLD_COLORS = { '#f47b20': '#f78fbc', '#3b82f6': '#29b2e8', '#0b7fb0': '#8fdcbc' }
+
 const seed = () => {
   const m = uid(), mf = uid(), rei = uid(), res = uid()
   return {
     version: 1,
+    flags: { interne: true },
+    statuses: DEFAULT_STATUSES.map((s) => ({ ...s })),
     companies: [
-      { id: rei, name: 'Reintegrar Saúde', color: '#f47b20', logo: '/images/Reintegrar_Saude.jpeg', layout: 'reintegrar', cutoffDay: 0, discounts: [] },
-      { id: res, name: 'Saúde Residência', color: '#3b82f6', logo: '/images/Saude_Residencia.png', layout: 'residencia', cutoffDay: 0, discounts: [] },
+      { id: rei, name: 'Reintegrar Saúde', color: '#f78fbc', logo: '/images/Reintegrar_Saude.jpeg', layout: 'reintegrar', cutoffDay: 0, discounts: [] },
+      { id: res, name: 'Saúde Residência', color: '#29b2e8', logo: '/images/Saude_Residencia.png', layout: 'residencia', cutoffDay: 0, discounts: [] },
+      interne(),
     ],
     procedures: [
       { id: m, name: 'Fisioterapia Motora', code: 'M', description: '' },
@@ -28,16 +35,28 @@ const seed = () => {
 const lsGet = (k) => { try { return localStorage.getItem(k) } catch { return null } }
 const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v) } catch { /* ignore */ } }
 
+// Monta o estado a partir de dados salvos (local ou da nuvem), aplicando ajustes de versões anteriores.
+function hydrate(data) {
+  const s = { ...seed(), ...data, flags: data.flags || {} }
+  if (!data.statuses?.length) s.statuses = DEFAULT_STATUSES.map((x) => ({ ...x }))
+  s.companies = s.companies.map((c) => (OLD_COLORS[c.color] ? { ...c, color: OLD_COLORS[c.color] } : c))
+  if (!s.flags.interne) { // empresa Interne entra uma vez só nos dados que já existiam
+    if (!s.companies.some((c) => /interne/i.test(c.name))) s.companies = [...s.companies, interne()]
+    s.flags = { ...s.flags, interne: true }
+  }
+  return s
+}
+
 function load() {
   try {
     const raw = lsGet(KEY)
-    if (raw) return { ...seed(), ...JSON.parse(raw) }
+    if (raw) return hydrate(JSON.parse(raw))
   } catch { /* segue com dados vazios */ }
   return seed()
 }
 
 // ---- divisão do estado para a API: 'meta' + registros por mês ----
-const metaOf = (s) => ({ version: s.version, companies: s.companies, procedures: s.procedures, prices: s.prices, patients: s.patients })
+const metaOf = (s) => ({ version: s.version, flags: s.flags, statuses: s.statuses, companies: s.companies, procedures: s.procedures, prices: s.prices, patients: s.patients })
 function monthsOf(records) {
   const out = {}
   for (const [k, v] of Object.entries(records)) (out[k.split('|')[1].slice(0, 7)] ||= {})[k] = v
@@ -75,12 +94,11 @@ export function StoreProvider({ children }) {
     if (r.body.empty) {
       snap.current = { meta: '', months: {} } // banco vazio: sobe os dados locais (migração)
     } else if (lsGet(DIRTY) === '1') {
-      const server = { ...seed(), ...r.body.meta, records: r.body.records }
-      snap.current = snapOf(server) // há alterações locais pendentes: elas prevalecem
+      snap.current = snapOf({ ...seed(), ...r.body.meta, records: r.body.records }) // há alterações locais pendentes: elas prevalecem
     } else {
-      const server = { ...seed(), ...r.body.meta, records: r.body.records }
-      snap.current = snapOf(server)
-      setState(server)
+      // o snapshot guarda o que está na nuvem; ajustes de versão (cores, Interne) viram diferença e sobem em seguida
+      snap.current = snapOf({ ...seed(), ...r.body.meta, records: r.body.records })
+      setState(hydrate({ ...r.body.meta, records: r.body.records }))
     }
     hydrated.current = true
     return true
@@ -183,7 +201,7 @@ export function StoreProvider({ children }) {
     return { ...s, [col]: i >= 0 ? list.map((x) => (x.id === item.id ? item : x)) : [...list, item] }
   }), [])
   const remove = useCallback((col, id) => setState((s) => ({ ...s, [col]: s[col].filter((x) => x.id !== id) })), [])
-  const replaceAll = useCallback((data) => { forceReplace.current = true; setState({ ...seed(), ...data }) }, [])
+  const replaceAll = useCallback((data) => { forceReplace.current = true; setState(hydrate(data)) }, [])
 
   const value = useMemo(() => ({ state, update, upsert, remove, replaceAll, auth, login, logout, sync, retrySync: push }), [state, update, upsert, remove, replaceAll, auth, login, logout, sync, push])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

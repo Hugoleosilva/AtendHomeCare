@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react'
-import { PATIENT_STATUS, companyOf, patientMonth, planValue, uid } from '../lib/core'
+import { companyOf, patientMonth, planValue, statusOf, uid } from '../lib/core'
 import { WD_SHORT, addMonths, brl, fmtBR, fmtMonth, fmtShort, today } from '../lib/dates'
 import { useStore } from '../lib/store'
-import { Back, Chips, Field, PeriodNav } from '../ui'
+import { Back, Chips, Field, PeriodNav, Sheet } from '../ui'
 
-const statusOpts = Object.entries(PATIENT_STATUS).map(([value, s]) => ({ value, label: s.label }))
 const scheduleText = (p) => {
   const s = p.schedule || {}
   const parts = []
@@ -15,9 +14,57 @@ const scheduleText = (p) => {
 }
 
 // ---------------- Lista -----------------
+// Gerencia as situações do paciente: renomear, marcar se interrompem a agenda, adicionar e retirar.
+function StatusManager({ onClose }) {
+  const { state, update } = useStore()
+  const [list, setList] = useState(() => state.statuses.map((s) => ({ ...s })))
+  const [err, setErr] = useState('')
+  const set = (i, p) => setList((l) => l.map((s, n) => (n === i ? { ...s, ...p } : s)))
+  const used = (id) => state.patients.some((p) => p.status === id)
+  const remove = (i) => {
+    const s = list[i]
+    if (s.id === 'ativo') return
+    if (used(s.id)) return setErr(`“${s.label}” está em uso por algum paciente. Mude a situação desses pacientes antes de retirar.`)
+    setErr('')
+    setList((l) => l.filter((_, n) => n !== i))
+  }
+  const save = () => {
+    if (list.some((s) => !s.label.trim())) return setErr('Toda situação precisa de um nome.')
+    const clean = list.map((s) => ({ ...s, label: s.label.trim() }))
+    update((st) => ({
+      ...st,
+      statuses: clean,
+      patients: st.patients.map((p) => { const s = clean.find((x) => x.id === p.status); return s ? { ...p, statusHalts: s.halts } : p }),
+    }))
+    onClose()
+  }
+  return (
+    <Sheet onClose={onClose}>
+      <h3>Situações do paciente</h3>
+      <p className="sub">Renomeie, adicione ou retire. Marque “interrompe a agenda” nas situações em que o paciente deixa de ser atendido (alta, óbito…).</p>
+      {list.map((s, i) => (
+        <div className="card" key={s.id}>
+          <div className="inline">
+            <input type="text" value={s.label} onChange={(e) => set(i, { label: e.target.value })} aria-label="Nome da situação" />
+            {s.id !== 'ativo' && <button type="button" className="btn danger" aria-label={`Retirar ${s.label}`} onClick={() => remove(i)}>✕</button>}
+          </div>
+          {s.id !== 'ativo'
+            ? <label className="inline" style={{ marginTop: 8 }}><input type="checkbox" checked={s.halts} onChange={(e) => set(i, { halts: e.target.checked })} style={{ width: 22, height: 22 }} /> Interrompe a agenda (não gera mais atendimentos)</label>
+            : <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>Situação padrão; não pode ser retirada.</div>}
+        </div>
+      ))}
+      <button type="button" className="btn ghost block" onClick={() => setList((l) => [...l, { id: uid(), label: '', halts: false }])}>＋ Nova situação</button>
+      {err && <div className="err">{err}</div>}
+      <div className="actions"><button className="btn ghost" onClick={onClose}>Cancelar</button><button className="btn" onClick={save}>Salvar</button></div>
+    </Sheet>
+  )
+}
+
 export function PatientsScreen({ onOpen, onNew }) {
   const { state } = useStore()
   const [filter, setFilter] = useState('ativo')
+  const [manage, setManage] = useState(false)
+  const statusOpts = state.statuses.map((s) => ({ value: s.id, label: s.label }))
   const [q, setQ] = useState('')
   const list = state.patients.filter((p) => (filter === 'todos' || p.status === filter) && p.name.toLowerCase().includes(q.toLowerCase()))
   const groups = state.companies.map((c) => ({ c, items: list.filter((p) => p.companyId === c.id).sort((a, b) => a.name.localeCompare(b.name)) })).filter((g) => g.items.length)
@@ -26,7 +73,9 @@ export function PatientsScreen({ onOpen, onNew }) {
     <>
       <h1>Pacientes</h1>
       <input type="text" placeholder="Buscar paciente…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 10 }} />
-      <Chips small value={filter} onChange={setFilter} options={[{ value: 'ativo', label: 'Ativos' }, ...statusOpts.filter((o) => o.value !== 'ativo'), { value: 'todos', label: 'Todos' }]} />
+      <Chips small equal value={filter} onChange={setFilter} options={[...statusOpts.map((o) => (o.value === 'ativo' ? { ...o, label: 'Ativos' } : o)), { value: 'todos', label: 'Todos' }]} />
+      <div className="inline" style={{ marginTop: 8 }}><button className="link" onClick={() => setManage(true)}>✏️ Adicionar ou retirar situações</button></div>
+      {manage && <StatusManager onClose={() => setManage(false)} />}
       {groups.length === 0 && <div className="empty">{state.patients.length ? 'Nenhum paciente neste filtro.' : 'Nenhum paciente cadastrado ainda.'}<br /><br /><button className="btn" onClick={onNew}>+ Novo paciente</button></div>}
       {groups.map(({ c, items }) => (
         <div key={c.id}>
@@ -38,7 +87,7 @@ export function PatientsScreen({ onOpen, onNew }) {
                 <div className="name" style={{ color: c.color }}>{p.name}</div>
                 <div className="meta">{scheduleText(p)}</div>
               </div>
-              {p.status !== 'ativo' && <span className="tag">{PATIENT_STATUS[p.status]?.label}</span>}
+              {p.status !== 'ativo' && <span className="tag">{statusOf(state, p.status).label}</span>}
               <span className="money">{brl(planValue(p))}</span>
             </button>
           ))}
@@ -81,16 +130,15 @@ export function PatientDetail({ id, ym, setYm, onBack, onEdit, onOpenStatus }) {
     <>
       <Back onClick={onBack} />
       <h1 style={{ color: company?.color }}>{p.name}</h1>
-      <p className="sub">{company?.name} · {scheduleText(p)}{p.status !== 'ativo' && ` · ${PATIENT_STATUS[p.status].label}${p.statusDate ? ` em ${fmtBR(p.statusDate)}` : ''}`}</p>
+      <p className="sub">{company?.name} · {scheduleText(p)}{p.status !== 'ativo' && ` · ${statusOf(state, p.status).label}${p.statusDate ? ` em ${fmtBR(p.statusDate)}` : ''}`}</p>
 
       <PeriodNav label={`Competência ${fmtMonth(ym)}`} onPrev={() => setYm(addMonths(ym, -1))} onNext={() => setYm(addMonths(ym, 1))} />
 
       <div className="card">
-        <div className="kv"><span>✅ Atendimentos (inclui repostos)</span><b>{m.done.length}</b></div>
-        <div className="kv"><span>🔄 Dos quais repostos</span><b>{repl.length}</b></div>
+        <div className="kv"><span>✅ Atendimentos</span><b>{normalDone.length}</b></div>
         <div className="kv"><span>❌ Faltas</span><b>{m.absent.length}</b></div>
-        <div className="kv"><span>⚠️ Trocados de dia</span><b>{m.swapped.length}</b></div>
-        <div className="kv"><span>▢ A marcar</span><b>{m.pending.length}</b></div>
+        <div className="kv"><span>⚠️ Reposições</span><b>{m.swapped.length}</b></div>
+        <div className="kv"><span>🔄 Atendimentos Reposições</span><b>{repl.length}</b></div>
       </div>
       <div className="card">
         <div className="kv"><span>Valor até agora ({normalDone.length + repl.length} atend.)</span><span className="money green big" style={{ fontSize: 20 }}>{brl(m.gross)}</span></div>
@@ -146,7 +194,7 @@ export function PatientForm({ id, defaultDate, onDone, onCancel }) {
     if (!f.companyId) return setErr('Cadastre e escolha uma empresa.')
     if (!f.items.length || f.items.some((i) => (i.procId === '__new' ? !i.newName?.trim() : !i.procId) || i.value === '' || Number(i.value) < 0)) return setErr('Informe procedimento e valor em todas as linhas.')
     if (!f.schedule.weekdays.length && !f.schedule.extraDates.length) return setErr('Escolha ao menos um dia da semana ou uma data pontual.')
-    if (PATIENT_STATUS[f.status].halts && !f.statusDate) return setErr('Informe a data da mudança de situação.')
+    if (statusOf(state, f.status).halts && !f.statusDate) return setErr('Informe a data da mudança de situação.')
 
     update((s) => {
       let procedures = [...s.procedures]
@@ -163,7 +211,7 @@ export function PatientForm({ id, defaultDate, onDone, onCancel }) {
         if (prices[f.companyId][procId] == null) prices[f.companyId][procId] = Number(it.value)
         return { procId, name: proc.name, value: Number(it.value) }
       })
-      const patient = { ...f, name: f.name.trim(), items, schedule: { ...f.schedule, time: withTime ? f.schedule.time : '' }, statusDate: PATIENT_STATUS[f.status].halts ? f.statusDate : '' }
+      const patient = { ...f, name: f.name.trim(), items, schedule: { ...f.schedule, time: withTime ? f.schedule.time : '' }, statusDate: statusOf(state, f.status).halts ? f.statusDate : '', statusHalts: statusOf(state, f.status).halts }
       delete patient.newName
       const exists = s.patients.some((x) => x.id === patient.id)
       return { ...s, procedures, prices, patients: exists ? s.patients.map((x) => (x.id === patient.id ? patient : x)) : [...s.patients, patient] }
@@ -180,7 +228,7 @@ export function PatientForm({ id, defaultDate, onDone, onCancel }) {
 
       <span className="lbl">Empresa Homecare</span>
       {state.companies.length ? (
-        <div className="chips">
+        <div className="chips equal">
           {state.companies.map((c) => (
             <button key={c.id} type="button" className={`chip${f.companyId === c.id ? ' on' : ''}`} style={f.companyId === c.id ? { background: c.color, color: '#111' } : { borderLeft: `6px solid ${c.color}` }} onClick={() => changeCompany(c.id)}>{c.name}</button>
           ))}
@@ -227,8 +275,8 @@ export function PatientForm({ id, defaultDate, onDone, onCancel }) {
       <div className="kv" style={{ marginTop: 8 }}><b>Total por atendimento</b><b className="money green">{brl(total)}</b></div>
 
       <h2>Situação do paciente</h2>
-      <Chips small value={f.status} onChange={(v) => set({ status: v })} options={statusOpts} />
-      {PATIENT_STATUS[f.status].halts && <Field label="A partir de quando"><input type="date" value={f.statusDate || ''} onChange={(e) => set({ statusDate: e.target.value })} /></Field>}
+      <Chips small equal value={f.status} onChange={(v) => set({ status: v })} options={state.statuses.map((s) => ({ value: s.id, label: s.label }))} />
+      {statusOf(state, f.status).halts && <Field label="A partir de quando"><input type="date" value={f.statusDate || ''} onChange={(e) => set({ statusDate: e.target.value })} /></Field>}
       <Field label="Anotações sobre o paciente (opcional)"><textarea value={f.notes || ''} onChange={(e) => set({ notes: e.target.value })} /></Field>
 
       {err && <div className="err">{err}</div>}

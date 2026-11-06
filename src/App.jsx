@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { monthOf, today, WD_SHORT } from './lib/dates'
 import { useStore } from './lib/store'
+import { ThemeButton } from './ui'
 import { DayScreen, MonthScreen, WeekScreen } from './screens/Calendar'
 import Closing from './screens/Closing'
 import Login from './screens/Login'
@@ -38,6 +39,7 @@ function Clock() {
       <span className="clock">{String(d.getHours()).padStart(2, '0')}:{String(d.getMinutes()).padStart(2, '0')}</span>
       <small>{WD_SHORT[d.getDay()].toLowerCase()}., {d.getDate()} de {['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][d.getMonth()]}.</small>
       <SyncBadge />
+      <ThemeButton className="top-theme" />
     </div>
   )
 }
@@ -89,13 +91,18 @@ export default function App() {
         {!view && (tab === 'dia' || tab === 'semana' || tab === 'mes') && <Clock />}
         {body}
       </main>
-      {showFab && <button className="fab" aria-label="Novo paciente" onClick={newPatient}>+</button>}
+      {showFab && <button className="fab" aria-label="Novo paciente" title="Novo paciente" onClick={newPatient}><span className="plus" aria-hidden="true">+</span><span className="fab-label">Novo paciente</span></button>}
       <nav className="tabs">
+        <div className="brand">
+          <img className="logo-light" src="/images/logo-light.png" alt="HomePlanner – Gestão de HomeCare" />
+          <img className="logo-dark" src="/images/logo-dark.png" alt="" />
+        </div>
         {TABS.map(([k, ic, label]) => (
           <button key={k} className={!view && tab === k ? 'on' : ''} onClick={() => changeTab(k)}>
             <span className="ic">{ic}</span>{label}
           </button>
         ))}
+        <div className="side-foot"><ThemeButton labeled /></div>
       </nav>
       {statusEntry && <StatusSheet key={statusEntry.key} entry={statusEntry} onClose={() => setStatusEntry(null)} onOpenPatient={openPatient} />}
     </div>

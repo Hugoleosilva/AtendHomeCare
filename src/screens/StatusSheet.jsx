@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ABSENCE_REASONS, companyOf, competencyOf, isScheduled, planValue, recKey, saveNotes, setStatus } from '../lib/core'
-import { addDays, brl, fmtBR, fmtLongDate, fmtMonth, fmtShort } from '../lib/dates'
+import { addDays, brl, fmtBR, fmtLongDate, fmtMonth, fmtShort, today } from '../lib/dates'
 import { useStore } from '../lib/store'
 import { Chips, Sheet } from '../ui'
 
@@ -26,6 +26,7 @@ export default function StatusSheet({ entry, onClose, onOpenPatient }) {
   const [error, setError] = useState('')
 
   const autoComp = competencyOf(company, date, null)
+  const future = date > today()
   const options = isReplacement ? OPTIONS.filter((o) => o.v !== 'swapped') : OPTIONS
 
   const save = () => {
@@ -59,13 +60,14 @@ export default function StatusSheet({ entry, onClose, onOpenPatient }) {
 
       <div className="statusbtns">
         {options.map((o) => (
-          <button key={o.v} className={`sbtn${status === o.v ? ' on' : ''}`} onClick={() => setSt(o.v)}>
+          <button key={o.v} className={`sbtn${status === o.v ? ' on' : ''}`} disabled={o.v === 'done' && future} title={o.v === 'done' && future ? 'Não dá para marcar como atendido uma data futura' : undefined} onClick={() => setSt(o.v)}>
             <span className="e">{o.e}</span>
             {o.v === 'done' && isReplacement ? 'Atendido (reposição)' : o.t}
           </button>
         ))}
       </div>
 
+      {future && <div className="muted" style={{ fontSize: 13 }}>Data futura: ainda não dá para marcar como atendido.</div>}
       {status === 'done' && (
         <div className="card">
           {(entry.status === 'done' ? rec.items : patient.items).map((i, n) => (

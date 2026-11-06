@@ -1,19 +1,21 @@
-import { addDays, addMonths, eachDay, fmtShort, monthOf, monthRange, weekday } from './dates'
+import { addDays, addMonths, eachDay, fmtShort, monthOf, monthRange, today, weekday } from './dates'
 
 export const PROFESSIONAL = { name: 'Thais Souza Cavalcanti', crefito: 'CREFITO 175056-F' }
 
 export const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4)
 export const recKey = (pid, date) => `${pid}|${date}`
 
-// Situações do paciente. As que interrompem a agenda param de gerar atendimentos após a data informada.
-export const PATIENT_STATUS = {
-  ativo: { label: 'Ativo', halts: false },
-  internado: { label: 'Internado', halts: false },
-  recusou: { label: 'Recusou tratamento', halts: true },
-  obito: { label: 'Óbito', halts: true },
-  alta: { label: 'Alta', halts: true },
-  suspenso: { label: 'Suspenso', halts: true },
-}
+// Situações do paciente (editáveis no app). As que interrompem a agenda param de gerar atendimentos após a data informada.
+export const DEFAULT_STATUSES = [
+  { id: 'ativo', label: 'Ativo', halts: false },
+  { id: 'internado', label: 'Internado', halts: false },
+  { id: 'recusou', label: 'Recusou tratamento', halts: true },
+  { id: 'obito', label: 'Óbito', halts: true },
+  { id: 'alta', label: 'Alta', halts: true },
+  { id: 'suspenso', label: 'Suspenso', halts: true },
+]
+const DEFAULT_HALTS = Object.fromEntries(DEFAULT_STATUSES.map((s) => [s.id, s.halts]))
+export const statusOf = (state, key) => state.statuses?.find((s) => s.id === key) || DEFAULT_STATUSES.find((s) => s.id === key) || { id: key, label: key, halts: false }
 
 export const ABSENCE_REASONS = ['Paciente não quis', 'Paciente internado', 'Paciente em consulta/exame', 'Chuva', 'Compromisso meu', 'Consulta médica minha', 'Outro']
 
@@ -23,7 +25,8 @@ export const planValue = (p) => (p.items || []).reduce((s, i) => s + (Number(i.v
 
 export function isScheduled(p, date) {
   const s = p.schedule || {}
-  if (PATIENT_STATUS[p.status]?.halts && p.statusDate && date > p.statusDate) return false
+  const halts = p.statusHalts ?? DEFAULT_HALTS[p.status]
+  if (halts && p.statusDate && date > p.statusDate) return false
   if ((s.extraDates || []).includes(date)) return true
   if (s.from && date < s.from) return false
   if (s.until && date > s.until) return false
@@ -71,6 +74,7 @@ export function entriesOnDay(state, date) {
 
 // ---- Mudança de status ------------------------------------------------------
 export function setStatus(state, patient, date, status, opts = {}) {
+  if (status === 'done' && date > today()) throw new Error('Não é possível marcar como atendido uma data futura.')
   const key = opts.key || recKey(patient.id, date)
   const rec = state.records[key] || {}
   const records = { ...state.records }

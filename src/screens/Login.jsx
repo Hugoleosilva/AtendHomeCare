@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../lib/store'
+import { ThemeButton } from '../ui'
 
 export default function Login() {
   const { auth, login } = useStore()
@@ -13,9 +14,12 @@ export default function Login() {
     setBusy(false)
   }
   return (
-    <form onSubmit={submit} style={{ maxWidth: 360, margin: '0 auto', padding: '18vh 24px 24px' }}>
-      <img src="/icons/icon-192.png" alt="" width="72" height="72" style={{ borderRadius: 18 }} />
-      <h1>HomeCare</h1>
+    <>
+    <ThemeButton labeled className="login-theme" />
+    <form onSubmit={submit} className="login">
+      <img className="logo logo-light" src="/images/logo-light.png" alt="HomePlanner – Gestão de HomeCare" />
+      <img className="logo logo-dark" src="/images/logo-dark.png" alt="" />
+      <h1>Entrar</h1>
       <p className="sub">Digite a senha para entrar.</p>
       <label className="f">
         <span>Senha</span>
@@ -24,5 +28,6 @@ export default function Login() {
       {auth.error && <div className="err" role="alert">{auth.error}</div>}
       <button className="btn block" disabled={busy || !pw}>{busy ? 'Entrando…' : 'Entrar'}</button>
     </form>
+    </>
   )
 }

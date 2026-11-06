@@ -1,18 +1,26 @@
 import { PROFESSIONAL } from './core'
 import { MONTHS, fmtBR } from './dates'
 
+// Fontes da coluna de evolução. As cursivas são livres (licença OFL) e ficam em /public/fonts.
+export const FONTS = {
+  arial: { label: 'Normal (Arial)', xl: 'Arial', pdf: 'helvetica', file: null, size: 11 },
+  shantell: { label: 'Cursiva – Shantell Sans', xl: 'Shantell Sans', pdf: 'ShantellSans', file: '/fonts/ShantellSans-Regular.ttf', size: 12 },
+  caveat: { label: 'Cursiva – Caveat', xl: 'Caveat', pdf: 'Caveat', file: '/fonts/Caveat-Regular.ttf', size: 14 },
+}
+
 // ---------- utilidades ----------
 const clean = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase()
 const genStamp = () => fmtBR(new Date().toISOString().slice(0, 10))
 const generatedBy = () => `Gerado por ${PROFESSIONAL.name} em ${genStamp()}`
 const profLine = `${PROFESSIONAL.name} - ${PROFESSIONAL.crefito}`
-const hex = (c) => c.replace('#', '').toUpperCase()
+const monthName = (ym) => MONTHS[Number(ym.slice(5, 7)) - 1]
+const periodLabel = (ym) => `${monthName(ym)} ${ym.slice(0, 4)}`
 
-export function fileBase({ company, ym, patients, allSelected }) {
-  const mes = MONTHS[Number(ym.slice(5, 7)) - 1]
+export function fileBase({ company, ym, patients, allSelected, cfg }) {
   const single = patients.length === 1 && !allSelected
-  const tail = single ? `${clean(patients[0].name)}_EVOLUCAO` : 'PACIENTES_EVOLUCOES'
-  return `${clean(company.name)}_${clean(mes)}_${ym.slice(0, 4)}_${tail}`
+  const word = cfg?.fileWord || 'EVOLUCAO'
+  const tail = single ? `${clean(patients[0].name)}_${word}` : `PACIENTES_${word === 'EVOLUCAO' ? 'EVOLUCOES' : word + 'S'}`
+  return `${clean(company.name)}_${clean(monthName(ym))}_${ym.slice(0, 4)}_${tail}`
 }
 
 async function loadImage(src) {
@@ -21,8 +29,7 @@ async function loadImage(src) {
     const blob = await (await fetch(src)).blob()
     const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob) })
     const dims = await new Promise((res) => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => res({ w: 1, h: 1 }); i.src = dataUrl })
-    const ext = blob.type.includes('png') ? 'png' : 'jpeg'
-    return { dataUrl, base64: dataUrl.split(',')[1], ext, ...dims }
+    return { dataUrl, base64: dataUrl.split(',')[1], ext: blob.type.includes('png') ? 'png' : 'jpeg', ...dims }
   } catch {
     return null
   }
@@ -38,13 +45,9 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000)
 }
 
-// groups: [{ patient, rows: [{ date, specialty, procs, evolution, observation }] }]
-const specialtyOf = (items, procedures) => {
-  const codes = [...new Set((items || []).map((i) => procedures.find((p) => p.id === i.procId)?.code || 'M'))]
-  return codes.join(' / ') || 'M'
-}
+const specialtyOf = (items, procedures) => [...new Set((items || []).map((i) => procedures.find((p) => p.id === i.procId)?.code || 'M'))].join(' / ') || 'M'
 
-export function buildGroups(state, occs, withObs) {
+export function buildGroups(state, occs) {
   const map = new Map()
   for (const o of occs) {
     if (!map.has(o.patient.id)) map.set(o.patient.id, { patient: o.patient, rows: [] })
@@ -53,132 +56,180 @@ export function buildGroups(state, occs, withObs) {
       specialty: specialtyOf(o.rec.items, state.procedures),
       procs: (o.rec.items || []).map((i) => i.name).join(', '),
       evolution: o.rec.evolution || '',
-      observation: withObs ? o.rec.observation || '' : '',
+      observation: o.rec.observation || '',
     })
   }
   return [...map.values()].sort((a, b) => a.patient.name.localeCompare(b.patient.name)).map((g) => ({ ...g, rows: g.rows.sort((a, b) => a.date.localeCompare(b.date)) }))
 }
-
-const periodLabel = (ym) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`
 const obsLines = (rows) => rows.filter((r) => r.observation).map((r) => `${fmtBR(r.date)} – ${r.observation}`)
 
-const REI_FOOT = 'Endereço: Rua Santo Elias, 475, Espinheiro, Recife-PE, CEP 52020-095, Telefone: (81) 3072-6772, (81) 9.9742-7777, contato@reintegrarsaude.com.br'
+// ---------- modelo de cada ficha ----------
+// A ficha é montada a partir da configuração (src/lib/docs.js), editável no app.
+function spec(cfg, company, ym, patient) {
+  const ctx = { paciente: patient.name, empresa: company.name, mes: monthName(ym), MES: monthName(ym).toUpperCase(), ano: ym.slice(0, 4), competencia: periodLabel(ym), profissional: PROFESSIONAL.name, crefito: PROFESSIONAL.crefito }
+  const T = (str) => String(str ?? '').replace(/\{(\w+)\}/g, (m, k) => ctx[k] ?? m)
+  const st = cfg.style || {}
+  const hex = (c, fb) => String(c || fb).replace('#', '').toUpperCase()
+  const serif = st.font === 'serif'
+  const sum = cfg.columns.reduce((a, c) => a + (Number(c.w) || 1), 0)
+  const getters = { date: (r) => fmtBR(r.date), sigla: (r) => r.specialty, procs: (r) => r.procs, evolution: (r) => r.evolution, observation: (r) => r.observation, professional: () => profLine, blank: () => '' }
+  return {
+    font: serif ? 'Times New Roman' : 'Calibri', pdfFont: serif ? 'times' : 'helvetica',
+    line: hex(st.line, '9CA3AF'), headFill: hex(st.headFill || company.color, '29B2E8'), headText: hex(st.headText, 'FFFFFF'), titleColor: hex(st.titleColor, '1F2937'),
+    logoSide: cfg.logoSide || 'left', title: T(cfg.title), titleAlign: cfg.titleAlign || 'left', side: T(cfg.headerText || ''),
+    minRows: Number(cfg.minRows) || 0,
+    fields: (cfg.fields || []).filter((l) => l.length).map((line) => line.map((f) => [T(f.label), T(f.value)])),
+    cols: cfg.columns.map((c) => ({
+      h: T(c.h), pw: (Number(c.w) || 1) / sum, w: Math.max(8, Math.round(((Number(c.w) || 1) / sum) * 110)), center: c.align === 'center',
+      get: c.src === 'text' ? () => T(c.text) : getters[c.src] || (() => ''), wrap: ['evolution', 'observation', 'procs'].includes(c.src), evo: c.src === 'evolution',
+    })),
+    footer: (cfg.footer || []).map(T).filter((x) => x.trim()), footerAlign: cfg.footerAlign || 'left', footerBold: !!cfg.footerBold, footerColor: hex(st.footerColor, '6B7280'),
+    stamp: cfg.stamp ? [PROFESSIONAL.name, 'Fisioterapeuta', PROFESSIONAL.crefito.replace('CREFITO ', '')] : null,
+  }
+}
+
+const hexRgb = (h) => [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
 
 // ---------- EXCEL ----------
-export async function exportExcel({ company, ym, groups, withObs, base }) {
+export async function exportExcel({ company, ym, groups, withObs, base, cfg, evoFont = 'arial', blank = false }) {
+  const ef = FONTS[evoFont] || FONTS.arial
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   wb.creator = PROFESSIONAL.name
   const logo = await loadImage(company.logo)
-  const color = hex(company.color)
-  const border = { top: { style: 'thin', color: { argb: 'FF9CA3AF' } }, left: { style: 'thin', color: { argb: 'FF9CA3AF' } }, bottom: { style: 'thin', color: { argb: 'FF9CA3AF' } }, right: { style: 'thin', color: { argb: 'FF9CA3AF' } } }
   const used = new Set()
 
   for (const { patient, rows } of groups) {
-    let name = patient.name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 28) || 'Paciente'
+    const sp = spec(cfg, company, ym, patient)
+    if (blank) sp.minRows = Math.max(sp.minRows, 25)
+    let name = patient.name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 28) || (blank ? 'Em branco' : 'Paciente')
     while (used.has(name.toLowerCase())) name = name.slice(0, 26) + '_' + (used.size + 1)
     used.add(name.toLowerCase())
-    const ws = wb.addWorksheet(name, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } })
-    const layout = company.layout || 'padrao'
+    const ws = wb.addWorksheet(name, { views: [{ showGridLines: false }], pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.6, header: 0.3, footer: 0.3 } } })
+    ws.columns = sp.cols.map((c) => ({ width: c.w }))
+    const last = sp.cols.length
+    const side = { style: 'thin', color: { argb: 'FF' + sp.line } }
+    const border = { top: side, left: side, bottom: side, right: side }
+    const F = (o = {}) => ({ name: sp.font, size: 12, ...o })
 
-    const cols = layout === 'reintegrar'
-      ? [{ w: 16, h: 'Data' }, { w: 22, h: 'Especialidade' }, { w: 40, h: 'Profissional' }, { w: 34, h: 'Paciente/Responsável' }]
-      : layout === 'residencia'
-        ? [{ w: 14, h: 'Data' }, { w: 100, h: 'Evolução' }]
-        : [{ w: 14, h: 'Data' }, { w: 34, h: 'Procedimentos' }, { w: 80, h: 'Evolução' }]
-    ws.columns = cols.map((c) => ({ width: c.w }))
-    const last = cols.length
-
-    // Cabeçalho com logo
+    // cabeçalho: logo + título
+    ws.getRow(1).height = 26; ws.getRow(2).height = 26; ws.getRow(3).height = 16
     if (logo) {
       const h = 64, w = Math.round((logo.w / logo.h) * h)
       const id = wb.addImage({ base64: logo.base64, extension: logo.ext })
-      ws.addImage(id, { tl: { col: 0, row: 0 }, ext: { width: w, height: h } })
+      const widths = sp.cols.map((c) => c.w)
+      const totalW = widths.reduce((a, b) => a + b, 0)
+      const colPos = sp.logoSide === 'right' ? { col: Math.max(0, last - 1), colOff: 0 } : { col: 0, colOff: 0 }
+      ws.addImage(id, sp.logoSide === 'center' ? { tl: { col: Math.max(0, last / 2 - 0.5), row: 0 }, ext: { width: w, height: h } } : { tl: { col: colPos.col + (sp.logoSide === 'right' ? 0.15 : 0), row: 0 }, ext: { width: w, height: h } })
+      void totalW
     }
-    ws.getRow(1).height = 24; ws.getRow(2).height = 24; ws.getRow(3).height = 14
-    const title = layout === 'reintegrar' ? 'FICHA DE FREQUÊNCIA' : layout === 'residencia' ? 'Evolução Clínica' : `Evolução do Paciente – ${company.name}`
-    ws.mergeCells(2, 1, 2, last)
-    const t = ws.getCell(2, 1)
-    t.value = title
-    t.font = { bold: true, size: 16, color: { argb: 'FF' + (layout === 'residencia' ? '1F4E8C' : '1F2937') } }
-    t.alignment = { horizontal: 'center', vertical: 'middle' }
-
     let r = 4
-    const info = (label, value, span = last) => {
-      ws.mergeCells(r, 1, r, span)
-      const c = ws.getCell(r, 1)
-      c.value = { richText: [{ text: `${label} `, font: { bold: true, size: 12 } }, { text: value, font: { size: 12 } }] }
-      r++
+    if (sp.logoSide === 'center') r = 4
+    // título (e texto do lado, como o nome do hospital na ficha da Interne)
+    ws.mergeCells(r, 1, r, sp.side ? Math.max(1, last - 1) : last)
+    const t = ws.getCell(r, 1)
+    t.value = sp.title
+    t.font = F({ bold: true, size: 15, color: { argb: 'FF' + sp.titleColor } })
+    t.alignment = { horizontal: sp.titleAlign, vertical: 'middle' }
+    if (sp.side) {
+      const s = ws.getCell(r, last)
+      s.value = sp.side
+      s.font = F({ bold: true, size: 13 })
+      s.alignment = { horizontal: 'right', vertical: 'middle', wrapText: true }
     }
-    if (layout === 'reintegrar') { info('Paciente:', patient.name); info('Convênio:', 'Fisio'); info('Mês de Ref.:', periodLabel(ym)) }
-    else if (layout === 'residencia') { info('Nome:', patient.name); info('Competência:', periodLabel(ym)) }
-    else { info('Paciente:', patient.name); info('Empresa:', company.name); info('Competência:', periodLabel(ym)) }
-    r++
+    ws.getRow(r).height = 28
+    r += 2
 
-    // Tabela
+    // campos (Paciente, Convênio, Mês...)
+    for (const line of sp.fields) {
+      const parts = line.length
+      const span = Math.floor(last / parts)
+      line.forEach(([label, value], i) => {
+        const c1 = 1 + i * span, c2 = i === parts - 1 ? last : c1 + span - 1
+        if (c2 > c1) ws.mergeCells(r, c1, r, c2)
+        const cell = ws.getCell(r, c1)
+        cell.value = { richText: [{ text: `${label} `, font: F({ bold: true }) }, { text: value, font: F() }] }
+        cell.alignment = { vertical: 'middle' }
+        for (let c = c1; c <= c2; c++) ws.getCell(r, c).border = { bottom: { style: 'thin', color: { argb: 'FF' + sp.line } } }
+      })
+      ws.getRow(r).height = 22
+      r += 1
+    }
+    r += 1
+
+    // tabela (só ela recebe as linhas coloridas)
     const head = ws.getRow(r)
-    cols.forEach((c, i) => {
+    sp.cols.forEach((c, i) => {
       const cell = head.getCell(i + 1)
       cell.value = c.h
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 }
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
+      cell.font = F({ bold: true, color: { argb: 'FF' + sp.headText } })
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + sp.headFill } }
       cell.alignment = { horizontal: 'center', vertical: 'middle' }
       cell.border = border
     })
-    head.height = 22
+    head.height = 24
     r++
-    for (const row of rows) {
-      const vals = layout === 'reintegrar' ? [fmtBR(row.date), row.specialty, profLine, ''] : layout === 'residencia' ? [fmtBR(row.date), row.evolution] : [fmtBR(row.date), row.procs, row.evolution]
+    const total = Math.max(rows.length, sp.minRows)
+    for (let n = 0; n < total; n++) {
+      const row = rows[n]
       const rr = ws.getRow(r)
-      vals.forEach((v, i) => {
+      sp.cols.forEach((c, i) => {
         const cell = rr.getCell(i + 1)
-        cell.value = v
+        cell.value = row ? c.get(row) : ''
+        cell.font = c.evo ? F({ name: ef.xl, size: ef.size }) : F({ size: 11 })
         cell.border = border
-        cell.alignment = { vertical: 'top', wrapText: true, horizontal: i === 0 || layout === 'reintegrar' ? 'center' : 'left' }
+        cell.alignment = { vertical: 'middle', wrapText: true, horizontal: c.center ? 'center' : 'left' }
       })
-      rr.height = layout === 'reintegrar' ? 24 : Math.max(22, Math.ceil((row.evolution || '').length / 95) * 17)
+      const lines = row ? Math.max(1, ...sp.cols.filter((c) => c.wrap).map((c) => Math.ceil(String(c.get(row) || '').length / (c.w * 0.95)))) : 1
+      rr.height = Math.max(22, lines * 16)
       r++
     }
 
-    // Observações: logo abaixo da última linha, fora da tabela
+    // observações: logo abaixo da tabela, fora dela
     const obs = withObs ? obsLines(rows) : []
     if (obs.length) {
       r++
       ws.mergeCells(r, 1, r, last)
       ws.getCell(r, 1).value = 'Observações:'
-      ws.getCell(r, 1).font = { bold: true, size: 12 }
+      ws.getCell(r, 1).font = F({ bold: true })
       r++
       for (const l of obs) {
         ws.mergeCells(r, 1, r, last)
         const c = ws.getCell(r, 1)
         c.value = l
+        c.font = F({ size: 11 })
         c.alignment = { wrapText: true, vertical: 'top' }
-        ws.getRow(r).height = Math.max(18, Math.ceil(l.length / 120) * 16)
+        ws.getRow(r).height = Math.max(18, Math.ceil(l.length / 110) * 16)
         r++
       }
     }
 
+    // rodapé e carimbo
     r++
-    ws.mergeCells(r, 1, r, last)
-    const foot = ws.getCell(r, 1)
-    foot.value = layout === 'residencia' ? `Toda anotação deve ser assinada e carimbada pelo profissional que o faz.  ${profLine}` : generatedBy()
-    foot.font = { italic: true, size: 10, color: { argb: 'FF6B7280' } }
-    r++
-    if (layout === 'residencia' || layout === 'padrao' || layout === 'reintegrar') {
+    for (const f of sp.footer) {
       ws.mergeCells(r, 1, r, last)
       const g = ws.getCell(r, 1)
-      g.value = layout === 'residencia' ? generatedBy() : layout === 'reintegrar' ? REI_FOOT : profLine
-      g.font = { italic: true, size: 10, color: { argb: 'FF6B7280' } }
-      g.alignment = { wrapText: true }
-      if (layout === 'reintegrar') ws.getRow(r).height = 28
+      g.value = f
+      g.font = F({ size: 10, bold: !!sp.footerBold, color: { argb: 'FF' + sp.footerColor } })
+      g.alignment = { wrapText: true, horizontal: sp.footerAlign, vertical: 'top' }
+      ws.getRow(r).height = Math.max(16, Math.ceil(f.length / 105) * 14)
       r++
-      if (layout === 'reintegrar') {
+    }
+    if (sp.stamp) {
+      for (const l of sp.stamp) {
         ws.mergeCells(r, 1, r, last)
-        const g2 = ws.getCell(r, 1)
-        g2.value = generatedBy()
-        g2.font = { italic: true, size: 10, color: { argb: 'FF6B7280' } }
+        const c = ws.getCell(r, 1)
+        c.value = l
+        c.font = F({ size: 11, bold: true, color: { argb: 'FF2F3C7E' } })
+        c.alignment = { horizontal: 'right' }
+        r++
       }
     }
+    ws.mergeCells(r, 1, r, last)
+    const gb = ws.getCell(r, 1)
+    gb.value = generatedBy()
+    gb.font = F({ size: 9, italic: true, color: { argb: 'FF9CA3AF' } })
+    gb.alignment = { horizontal: sp.footerAlign === 'center' ? 'center' : 'left' }
   }
 
   const buf = await wb.xlsx.writeBuffer()
@@ -186,62 +237,88 @@ export async function exportExcel({ company, ym, groups, withObs, base }) {
 }
 
 // ---------- PDF ----------
-export async function exportPdf({ company, ym, groups, withObs, base }) {
+export async function exportPdf({ company, ym, groups, withObs, base, cfg, evoFont = 'arial', blank = false }) {
+  const ef = FONTS[evoFont] || FONTS.arial
   const { jsPDF } = await import('jspdf')
-  const autoTable = (await import('jspdf-autotable')).default
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  const atMod = await import('jspdf-autotable')
+  const autoTable = typeof atMod.default === 'function' ? atMod.default : atMod.default?.default ?? atMod.autoTable
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   const logo = await loadImage(company.logo)
-  const rgb = (h) => [parseInt(hex(h).slice(0, 2), 16), parseInt(hex(h).slice(2, 4), 16), parseInt(hex(h).slice(4, 6), 16)]
-  const layout = company.layout || 'padrao'
-  const W = doc.internal.pageSize.getWidth()
-  const H = doc.internal.pageSize.getHeight()
+  if (ef.file) { // embute a fonte cursiva no PDF
+    const bytes = new Uint8Array(await (await fetch(ef.file)).arrayBuffer())
+    let bin = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+    const vfs = ef.file.split('/').pop()
+    pdf.addFileToVFS(vfs, btoa(bin))
+    pdf.addFont(vfs, ef.pdf, 'normal')
+  }
+  const W = pdf.internal.pageSize.getWidth()
+  const H = pdf.internal.pageSize.getHeight()
+  const M = 40
 
   groups.forEach(({ patient, rows }, gi) => {
-    if (gi) doc.addPage()
-    let y = 36
+    if (gi) pdf.addPage()
+    const sp = spec(cfg, company, ym, patient)
+    if (blank) sp.minRows = Math.max(sp.minRows, 25)
+    const line = hexRgb(sp.line)
+    const font = sp.pdfFont
+    let y = 34
     if (logo) {
-      const h = 52, w = (logo.w / logo.h) * h
-      doc.addImage(logo.dataUrl, logo.ext === 'png' ? 'PNG' : 'JPEG', 40, y, w, h)
+      const h = 50, w = (logo.w / logo.h) * h
+      const x = sp.logoSide === 'right' ? W - M - w : sp.logoSide === 'center' ? (W - w) / 2 : M
+      pdf.addImage(logo.dataUrl, logo.ext === 'png' ? 'PNG' : 'JPEG', x, y, w, h)
     }
-    y += 78
-    doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(31, 41, 55)
-    const title = layout === 'reintegrar' ? 'FICHA DE FREQUÊNCIA' : layout === 'residencia' ? 'Evolução Clínica' : `Evolução do Paciente – ${company.name}`
-    doc.text(title, W / 2, y, { align: 'center' })
-    y += 26
-    doc.setFontSize(11)
-    const info = (l, v) => { doc.setFont('helvetica', 'bold').text(`${l} `, 40, y); doc.setFont('helvetica', 'normal').text(v, 40 + doc.getTextWidth(`${l} `) + 2, y); y += 17 }
-    if (layout === 'reintegrar') { info('Paciente:', patient.name); info('Convênio:', 'Fisio'); info('Mês de Ref.:', periodLabel(ym)) }
-    else if (layout === 'residencia') { info('Nome:', patient.name); info('Competência:', periodLabel(ym)) }
-    else { info('Paciente:', patient.name); info('Empresa:', company.name); info('Competência:', periodLabel(ym)) }
+    y += 76
+    pdf.setFont(font, 'bold').setFontSize(sp.titleAlign === 'center' ? 16 : 13).setTextColor(...hexRgb(sp.titleColor))
+    pdf.text(sp.title, sp.titleAlign === 'center' ? W / 2 : M, y, { align: sp.titleAlign === 'center' ? 'center' : 'left' })
+    if (sp.side) pdf.setFontSize(13).text(sp.side, W - M, y, { align: 'right' })
+    y += 24
+    pdf.setFontSize(11).setTextColor(31, 41, 55)
+    for (const lineFields of sp.fields) {
+      const span = (W - M * 2) / lineFields.length
+      lineFields.forEach(([label, value], i) => {
+        const x = M + i * span
+        pdf.setFont(font, 'bold').text(`${label} `, x, y)
+        const lw = pdf.getTextWidth(`${label} `)
+        pdf.setFont(font, 'normal').text(value, x + lw, y)
+        pdf.setDrawColor(...line).setLineWidth(0.6).line(x + lw - 2, y + 3, x + span - 12, y + 3)
+      })
+      y += 20
+    }
 
-    const head = layout === 'reintegrar' ? ['Data', 'Especialidade', 'Profissional', 'Paciente/Responsável'] : layout === 'residencia' ? ['Data', 'Evolução'] : ['Data', 'Procedimentos', 'Evolução']
-    const body = rows.map((r) => (layout === 'reintegrar' ? [fmtBR(r.date), r.specialty, profLine, ''] : layout === 'residencia' ? [fmtBR(r.date), r.evolution] : [fmtBR(r.date), r.procs, r.evolution]))
-    autoTable(doc, {
-      startY: y + 6, head: [head], body, theme: 'grid', margin: { left: 40, right: 40, bottom: 70 },
-      styles: { fontSize: 10, cellPadding: 5, lineColor: [156, 163, 175], lineWidth: 0.5, minCellHeight: layout === 'reintegrar' ? 22 : 0 },
-      headStyles: { fillColor: rgb(company.color), textColor: 255, halign: 'center' },
-      columnStyles: layout === 'reintegrar' ? { 0: { halign: 'center', cellWidth: 70 }, 1: { halign: 'center', cellWidth: 80 }, 3: { cellWidth: 130 } } : { 0: { halign: 'center', cellWidth: 70 } },
+    const body = rows.map((r) => sp.cols.map((c) => c.get(r)))
+    while (body.length < sp.minRows) body.push(sp.cols.map(() => ''))
+    const tw = W - M * 2
+    autoTable(pdf, {
+      startY: y + 6, head: [sp.cols.map((c) => c.h)], body, theme: 'grid', margin: { left: M, right: M, bottom: 70 },
+      styles: { font, fontSize: 10, cellPadding: 4, lineColor: line, lineWidth: 0.6, textColor: [31, 41, 55], minCellHeight: 18, valign: 'middle' },
+      headStyles: { fillColor: hexRgb(sp.headFill), textColor: hexRgb(sp.headText), halign: 'center', fontStyle: 'bold' },
+      columnStyles: Object.fromEntries(sp.cols.map((c, i) => [i, { cellWidth: tw * c.pw, halign: c.center ? 'center' : 'left', ...(c.evo && ef.file ? { font: ef.pdf, fontSize: ef.size - 1 } : {}) }])),
     })
-    let ey = doc.lastAutoTable.finalY + 18
+    let ey = pdf.lastAutoTable.finalY + 16
     const obs = withObs ? obsLines(rows) : []
     if (obs.length) {
-      doc.setFont('helvetica', 'bold').setFontSize(11).text('Observações:', 40, ey)
+      pdf.setFont(font, 'bold').setFontSize(11).setTextColor(31, 41, 55).text('Observações:', M, ey)
       ey += 15
-      doc.setFont('helvetica', 'normal').setFontSize(10)
+      pdf.setFont(font, 'normal').setFontSize(10)
       for (const l of obs) {
-        const lines = doc.splitTextToSize(l, W - 80)
-        if (ey + lines.length * 13 > H - 60) { doc.addPage(); ey = 50 }
-        doc.text(lines, 40, ey)
-        ey += lines.length * 13 + 3
+        const ls = pdf.splitTextToSize(l, W - M * 2)
+        if (ey + ls.length * 13 > H - 60) { pdf.addPage(); ey = 50 }
+        pdf.text(ls, M, ey)
+        ey += ls.length * 13 + 3
       }
     }
-    doc.setFont('helvetica', 'italic').setFontSize(8).setTextColor(107, 114, 128)
-    const pages = doc.getNumberOfPages()
-    doc.setPage(pages)
-    const foot = layout === 'residencia' ? [`Toda anotação deve ser assinada e carimbada pelo profissional que o faz.  ${profLine}`, generatedBy()] : layout === 'reintegrar' ? [REI_FOOT, generatedBy()] : [profLine, generatedBy()]
-    let fy = H - 42
-    for (const f of foot) { const ls = doc.splitTextToSize(f, W - 80); doc.text(ls, 40, fy); fy += ls.length * 10 }
+    // rodapé na última página do paciente
+    const lines = [...sp.footer.flatMap((f) => pdf.splitTextToSize(f, W - M * 2)), ...(sp.stamp ? [] : [])]
+    pdf.setFont(font, sp.footerBold ? 'bold' : 'normal').setFontSize(8).setTextColor(...hexRgb(sp.footerColor))
+    let fy = H - 18 - lines.length * 10 - (sp.stamp ? 34 : 0)
+    if (fy < ey) { pdf.addPage(); fy = H - 18 - lines.length * 10 - (sp.stamp ? 34 : 0) }
+    for (const l of lines) { pdf.text(l, sp.footerAlign === 'center' ? W / 2 : M, fy, { align: sp.footerAlign === 'center' ? 'center' : 'left' }); fy += 10 }
+    if (sp.stamp) {
+      pdf.setFont(font, 'bold').setFontSize(9).setTextColor(47, 60, 126)
+      sp.stamp.forEach((l, i) => pdf.text(l, W - M, H - 52 + i * 11, { align: 'right' }))
+    }
   })
 
-  doc.save(`${base}.pdf`)
+  pdf.save(`${base}.pdf`)
 }

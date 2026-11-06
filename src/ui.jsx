@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { STATUS_ICON, companyOf, timeOf } from './lib/core'
 import { fmtShort } from './lib/dates'
+import { isDarkNow, setTheme, useTheme } from './lib/theme'
 
 export function Sheet({ onClose, children }) {
   useEffect(() => {
@@ -17,6 +18,17 @@ export function Sheet({ onClose, children }) {
   )
 }
 
+// Alterna Claro ↔ Escuro (o modo Automático fica em Mais › Aparência).
+export function ThemeButton({ labeled = false, className = '' }) {
+  const t = useTheme()
+  const dark = isDarkNow(t)
+  return (
+    <button className={`theme-btn ${className}`} onClick={() => setTheme(dark ? 'light' : 'dark')} aria-label={dark ? 'Mudar para modo claro' : 'Mudar para modo escuro'} title={dark ? 'Modo claro' : 'Modo escuro'}>
+      <span aria-hidden="true">{dark ? '☀️' : '🌙'}</span>{labeled && <span>{dark ? 'Modo claro' : 'Modo escuro'}</span>}
+    </button>
+  )
+}
+
 export function Back({ onClick, children = '‹ Voltar' }) {
   return (
     <button className="back" onClick={onClick}>
@@ -25,11 +37,14 @@ export function Back({ onClick, children = '‹ Voltar' }) {
   )
 }
 
-export function PeriodNav({ label, onPrev, onNext }) {
+export function PeriodNav({ label, onPrev, onNext, onToday }) {
   return (
     <div className="nav">
       <button onClick={onPrev} aria-label="Anterior">‹</button>
-      <strong>{label}</strong>
+      <div className="nav-mid">
+        <strong>{label}</strong>
+        {onToday && <button className="today-btn" onClick={onToday}>Hoje</button>}
+      </div>
       <button onClick={onNext} aria-label="Próximo">›</button>
     </div>
   )
@@ -72,7 +87,7 @@ export function EntryRow({ state, entry, onOpenPatient, onOpenStatus }) {
       <div className="bar" style={{ background: color }} />
       {timeOf(entry) && <div className="time">{timeOf(entry)}</div>}
       <button className="main" onClick={() => onOpenPatient(p.id)}>
-        <div className="name" style={{ color }}>{p.name}</div>
+        <div className="name" style={{ color: `color-mix(in srgb, ${color} 70%, var(--text))` }}>{p.name}</div>
         <div className="meta">{company?.name || 'Sem empresa'}{note ? ` · ${note}` : ''}</div>
       </button>
       <StatusBox entry={entry} onClick={() => onOpenStatus(entry)} />
@@ -87,14 +102,14 @@ export const Field = ({ label, children }) => (
   </label>
 )
 
-export function Chips({ options, value, onChange, multi = false, small = false }) {
+export function Chips({ options, value, onChange, multi = false, small = false, equal = false }) {
   const isOn = (v) => (multi ? value.includes(v) : value === v)
   const click = (v) => {
     if (multi) onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
     else onChange(v)
   }
   return (
-    <div className="chips">
+    <div className={`chips${equal ? ' equal' : ''}`}>
       {options.map((o) => (
         <button type="button" key={o.value} className={`chip${small ? ' small' : ''}${isOn(o.value) ? ' on' : ''}`} onClick={() => click(o.value)}>
           {o.label}

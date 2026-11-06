@@ -34,7 +34,7 @@ export default function Closing({ ym, setYm, onBack, onOpenPatient }) {
         </div>
       ))}
 
-      <div className="card" style={{ background: '#1f2a1f' }}>
+      <div className="card" style={{ background: 'color-mix(in srgb, var(--ok) 12%, var(--card))' }}>
         <div className="muted">Total a receber no mês</div>
         <div className="big green money">{brl(stats.total.net)}</div>
         <div className="muted" style={{ marginTop: 6 }}>Projeção ao final do mês: <b className="money" style={{ color: 'var(--text)' }}>{brl(stats.total.projNet)}</b></div>

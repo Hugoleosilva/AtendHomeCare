@@ -1,14 +1,21 @@
 import { useRef, useState } from 'react'
 import { uid } from '../lib/core'
 import { useStore } from '../lib/store'
-import { Back, Field } from '../ui'
+import { setTheme, useTheme } from '../lib/theme'
+import { Back, Chips, Field } from '../ui'
 
-const COLORS = ['#f47b20', '#3b82f6', '#22c55e', '#e11d74', '#a855f7', '#eab308', '#14b8a6', '#ef4444']
+const COLORS = ['#29b2e8', '#f78fbc', '#8fdcbc', '#d6336c', '#7dd3f5', '#f5a3c7', '#4a90c2', '#5fc4a0']
 const LAYOUTS = [
   { value: 'padrao', label: 'Padrão (tabela simples)' },
   { value: 'reintegrar', label: 'Reintegrar – Ficha de Frequência' },
-  { value: 'residencia', label: 'Saúde Residência – Evolução Clínica' },
+  { value: 'residencia', label: 'Saúde Residência – Relatório e Evolução Clínica' },
+  { value: 'interne', label: 'Interne – Frequência de atendimento' },
 ]
+
+function ThemePicker() {
+  const t = useTheme()
+  return <Chips small value={t} onChange={setTheme} options={[{ value: 'light', label: 'Claro' }, { value: 'dark', label: 'Escuro' }]} />
+}
 
 export function MoreScreen({ go }) {
   const { auth, logout, sync } = useStore()
@@ -30,9 +37,11 @@ export function MoreScreen({ go }) {
         </button>
       ))}
       <div className="card" style={{ marginTop: 14 }}>
-        <div className="kv"><span className="muted">Acesso</span><b>{auth.role === 'admin' ? 'Administrador' : 'Usuária'}</b></div>
+        <div className="kv"><span className="muted">Acesso</span><b>{auth.role === 'admin' ? 'Hugo' : 'Thais'}</b></div>
         <div className="kv"><span className="muted">Sincronização</span><b>{{ saved: '☁️ Em dia', saving: '⏳ Salvando…', offline: '📴 Sem internet', error: '⚠️ Falhou', idle: '—' }[sync]}</b></div>
-        <button className="btn ghost block" style={{ marginTop: 10 }} onClick={() => confirm('Sair do app neste aparelho?') && logout()}>Sair</button>
+        <span className="lbl" style={{ marginTop: 10 }}>Aparência</span>
+        <ThemePicker />
+        <button className="btn ghost block" style={{ marginTop: 14 }} onClick={() => confirm('Sair do app neste aparelho?') && logout()}>Sair</button>
       </div>
     </>
   )
@@ -97,7 +106,7 @@ function CompanyForm({ initial, onDone }) {
       <Field label="Nome da empresa Homecare"><input type="text" value={f.name} onChange={(e) => set({ name: e.target.value })} /></Field>
       <span className="lbl">Cor nos pacientes</span>
       <div className="chips">
-        {COLORS.map((c) => <button key={c} type="button" aria-label={c} onClick={() => set({ color: c })} style={{ width: 44, height: 44, borderRadius: 22, background: c, outline: f.color === c ? '3px solid #fff' : 'none', outlineOffset: 2 }} />)}
+        {COLORS.map((c) => <button key={c} type="button" aria-label={c} onClick={() => set({ color: c })} style={{ width: 44, height: 44, borderRadius: 22, background: c, outline: f.color === c ? '3px solid var(--text)' : 'none', outlineOffset: 2 }} />)}
         <input type="color" value={f.color} onChange={(e) => set({ color: e.target.value })} style={{ width: 44, height: 44, padding: 2 }} />
       </div>
 
@@ -130,6 +139,7 @@ function CompanyForm({ initial, onDone }) {
       <Field label="Modelo da planilha de evolução">
         <select value={f.layout} onChange={(e) => set({ layout: e.target.value })}>{LAYOUTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}</select>
       </Field>
+      {f.layout === 'interne' && <Field label="Texto do cabeçalho da ficha (ex.: nome do hospital)"><input type="text" value={f.headerText || ''} onChange={(e) => set({ headerText: e.target.value })} /></Field>}
       <div className="inline">
         {f.logo && <img src={f.logo} alt="" style={{ height: 48, background: '#fff', borderRadius: 8, padding: 4 }} />}
         <button type="button" className="btn ghost" onClick={() => fileRef.current.click()}>{f.logo ? 'Trocar logo' : 'Enviar logo'}</button>
