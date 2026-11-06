@@ -24,7 +24,7 @@ export function ThemeButton({ labeled = false, className = '' }) {
   const dark = isDarkNow(t)
   return (
     <button className={`theme-btn ${className}`} onClick={() => setTheme(dark ? 'light' : 'dark')} aria-label={dark ? 'Mudar para modo claro' : 'Mudar para modo escuro'} title={dark ? 'Modo claro' : 'Modo escuro'}>
-      <span aria-hidden="true">{dark ? '☀️' : '🌙'}</span>{labeled && <span>{dark ? 'Modo claro' : 'Modo escuro'}</span>}
+      <span aria-hidden="true">{dark ? '☀️' : '🌙'}</span>{labeled && <span className="tlabel">{dark ? 'Modo claro' : 'Modo escuro'}</span>}
     </button>
   )
 }
