@@ -41,6 +41,9 @@ export default function DocEditor({ initial, canDelete, isNew, onSave, onDelete,
       <span className="lbl">Posição do logo da empresa</span>
       <Chips small value={f.logoSide} onChange={(v) => set({ logoSide: v })} options={[{ value: 'left', label: 'Esquerda' }, { value: 'center', label: 'Centro' }, { value: 'right', label: 'Direita' }]} />
 
+      <span className="lbl" style={{ marginTop: 12 }}>Tamanho do logo</span>
+      <Chips small value={f.logoSize || 'md'} onChange={(v) => set({ logoSize: v })} options={[{ value: 'sm', label: 'Pequeno' }, { value: 'md', label: 'Médio' }, { value: 'lg', label: 'Grande' }]} />
+
       <h2>Campos acima da tabela</h2>
       <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>Cada linha pode ter 1 ou 2 campos. Ex.: “Paciente:” → {'{paciente}'}.</div>
       {f.fields.map((line, li) => (

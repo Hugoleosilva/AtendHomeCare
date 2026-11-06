@@ -23,13 +23,52 @@ export function fileBase({ company, ym, patients, allSelected, cfg }) {
   return `${clean(company.name)}_${clean(monthName(ym))}_${ym.slice(0, 4)}_${tail}`
 }
 
+// Recorta a margem branca/transparente ao redor do logo (só no navegador; sem canvas, mantém o original).
+function trimWhite(img, w, h) {
+  try {
+    if (!img || w < 2 || h < 2) return null
+    const cv = document.createElement('canvas')
+    cv.width = w; cv.height = h
+    const ctx = cv.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+    ctx.drawImage(img, 0, 0)
+    const d = ctx.getImageData(0, 0, w, h).data
+    let x0 = w, y0 = h, x1 = -1, y1 = -1
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4
+        const bg = d[i + 3] < 10 || (d[i] > 238 && d[i + 1] > 238 && d[i + 2] > 238)
+        if (!bg) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+      }
+    }
+    if (x1 < 0) return null
+    const pad = 2
+    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad)
+    const cw = x1 - x0 + 1, ch = y1 - y0 + 1
+    if (cw >= w - 4 && ch >= h - 4) return null // já está justo
+    const out = document.createElement('canvas')
+    out.width = cw; out.height = ch
+    out.getContext('2d').drawImage(cv, x0, y0, cw, ch, 0, 0, cw, ch)
+    return { dataUrl: out.toDataURL('image/png'), w: cw, h: ch }
+  } catch {
+    return null
+  }
+}
+
+// Altura do logo por tamanho escolhido: PDF em pontos, Excel em pixels.
+const LOGO_PT = { sm: 40, md: 54, lg: 82 }
+const LOGO_PX = { sm: 52, md: 70, lg: 108 }
+
 async function loadImage(src) {
   if (!src) return null
   try {
     const blob = await (await fetch(src)).blob()
     const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob) })
-    const dims = await new Promise((res) => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => res({ w: 1, h: 1 }); i.src = dataUrl })
-    return { dataUrl, base64: dataUrl.split(',')[1], ext: blob.type.includes('png') ? 'png' : 'jpeg', ...dims }
+    const dims = await new Promise((res) => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight, el: i }); i.onerror = () => res({ w: 1, h: 1 }); i.src = dataUrl })
+    const ext = blob.type.includes('png') ? 'png' : 'jpeg'
+    const cropped = trimWhite(dims.el, dims.w, dims.h) // tira a margem branca do arquivo do logo
+    if (cropped) return { dataUrl: cropped.dataUrl, base64: cropped.dataUrl.split(',')[1], ext: 'png', w: cropped.w, h: cropped.h }
+    return { dataUrl, base64: dataUrl.split(',')[1], ext, w: dims.w, h: dims.h }
   } catch {
     return null
   }
@@ -65,8 +104,10 @@ const obsLines = (rows) => rows.filter((r) => r.observation).map((r) => `${fmtBR
 
 // ---------- modelo de cada ficha ----------
 // A ficha é montada a partir da configuração (src/lib/docs.js), editável no app.
-function spec(cfg, company, ym, patient) {
-  const ctx = { paciente: patient.name, empresa: company.name, mes: monthName(ym), MES: monthName(ym).toUpperCase(), ano: ym.slice(0, 4), competencia: periodLabel(ym), profissional: PROFESSIONAL.name, crefito: PROFESSIONAL.crefito }
+function spec(cfg, company, ym, patient, headerMonth = 'auto') {
+  // mês mostrado no cabeçalho: do período (auto), outro mês escolhido ('AAAA-MM') ou em branco ('blank', para preencher à mão)
+  const hm = headerMonth === 'blank' ? null : /^\d{4}-\d{2}$/.test(headerMonth) ? headerMonth : ym
+  const ctx = { paciente: patient.name, empresa: company.name, mes: hm ? monthName(hm) : '', MES: hm ? monthName(hm).toUpperCase() : '', ano: hm ? hm.slice(0, 4) : '', competencia: hm ? periodLabel(hm) : '', profissional: PROFESSIONAL.name, crefito: PROFESSIONAL.crefito }
   const T = (str) => String(str ?? '').replace(/\{(\w+)\}/g, (m, k) => ctx[k] ?? m)
   const st = cfg.style || {}
   const hex = (c, fb) => String(c || fb).replace('#', '').toUpperCase()
@@ -76,6 +117,8 @@ function spec(cfg, company, ym, patient) {
   return {
     font: serif ? 'Times New Roman' : 'Calibri', pdfFont: serif ? 'times' : 'helvetica',
     line: hex(st.line, '9CA3AF'), headFill: hex(st.headFill || company.color, '29B2E8'), headText: hex(st.headText, 'FFFFFF'), titleColor: hex(st.titleColor, '1F2937'),
+    // título que termina em campo de mês (ex.: “… - MÊS {MES}”): vira texto + linha para o mês, como no papel
+    titleLine: (() => { const m = String(cfg.title || '').match(/^(.*?)\s*\{(MES|mes|competencia)\}\s*$/); return m ? { prefix: T(m[1]), value: T(`{${m[2]}}`) } : null })(),
     logoSide: cfg.logoSide || 'left', title: T(cfg.title), titleAlign: cfg.titleAlign || 'left', side: T(cfg.headerText || ''),
     minRows: Number(cfg.minRows) || 0,
     fields: (cfg.fields || []).filter((l) => l.length).map((line) => line.map((f) => [T(f.label), T(f.value)])),
@@ -91,7 +134,7 @@ function spec(cfg, company, ym, patient) {
 const hexRgb = (h) => [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
 
 // ---------- EXCEL ----------
-export async function exportExcel({ company, ym, groups, withObs, base, cfg, evoFont = 'arial', blank = false }) {
+export async function exportExcel({ company, ym, groups, withObs, base, cfg, evoFont = 'arial', blank = false, headerMonth = 'auto' }) {
   const ef = FONTS[evoFont] || FONTS.arial
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
@@ -100,7 +143,7 @@ export async function exportExcel({ company, ym, groups, withObs, base, cfg, evo
   const used = new Set()
 
   for (const { patient, rows } of groups) {
-    const sp = spec(cfg, company, ym, patient)
+    const sp = spec(cfg, company, ym, patient, headerMonth)
     if (blank) sp.minRows = Math.max(sp.minRows, 25)
     let name = patient.name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 28) || (blank ? 'Em branco' : 'Paciente')
     while (used.has(name.toLowerCase())) name = name.slice(0, 26) + '_' + (used.size + 1)
@@ -113,9 +156,10 @@ export async function exportExcel({ company, ym, groups, withObs, base, cfg, evo
     const F = (o = {}) => ({ name: sp.font, size: 12, ...o })
 
     // cabeçalho: logo + título
-    ws.getRow(1).height = 26; ws.getRow(2).height = 26; ws.getRow(3).height = 16
+    const lpx = LOGO_PX[cfg.logoSize] || LOGO_PX.md
+    ws.getRow(1).height = 26; ws.getRow(2).height = 26; ws.getRow(3).height = Math.max(16, lpx * 0.75 + 6 - 52)
     if (logo) {
-      const h = 64, w = Math.round((logo.w / logo.h) * h)
+      const h = lpx, w = Math.round((logo.w / logo.h) * h)
       const id = wb.addImage({ base64: logo.base64, extension: logo.ext })
       const widths = sp.cols.map((c) => c.w)
       const totalW = widths.reduce((a, b) => a + b, 0)
@@ -126,11 +170,31 @@ export async function exportExcel({ company, ym, groups, withObs, base, cfg, evo
     let r = 4
     if (sp.logoSide === 'center') r = 4
     // título (e texto do lado, como o nome do hospital na ficha da Interne)
-    ws.mergeCells(r, 1, r, sp.side ? Math.max(1, last - 1) : last)
-    const t = ws.getCell(r, 1)
-    t.value = sp.title
-    t.font = F({ bold: true, size: 15, color: { argb: 'FF' + sp.titleColor } })
-    t.alignment = { horizontal: sp.titleAlign, vertical: 'middle' }
+    const titleLast = sp.side ? Math.max(1, last - 1) : last
+    if (sp.titleLine && titleLast > 1) {
+      // texto do título + célula com linha embaixo para o mês (alinhada ao título, como no papel)
+      const need = sp.titleLine.prefix.length * 1.3 // largura estimada do texto (fonte 15, negrito)
+      const widths = sp.cols.map((c) => c.w)
+      let k = 1, acc = widths[0]
+      while (k < titleLast - 1 && acc < need) { acc += widths[k]; k++ }
+      ws.mergeCells(r, 1, r, k)
+      const t0 = ws.getCell(r, 1)
+      t0.value = sp.titleLine.prefix
+      t0.font = F({ bold: true, size: 15, color: { argb: 'FF' + sp.titleColor } })
+      t0.alignment = { horizontal: 'left', vertical: 'bottom' }
+      ws.mergeCells(r, k + 1, r, titleLast)
+      const tv = ws.getCell(r, k + 1)
+      tv.value = sp.titleLine.value
+      tv.font = F({ bold: true, size: 15, color: { argb: 'FF' + sp.titleColor } })
+      tv.alignment = { horizontal: 'center', vertical: 'bottom' }
+      for (let c = k + 1; c <= titleLast; c++) ws.getCell(r, c).border = { bottom: { style: 'thin', color: { argb: 'FF' + sp.line } } }
+    } else {
+      ws.mergeCells(r, 1, r, titleLast)
+      const t = ws.getCell(r, 1)
+      t.value = sp.title
+      t.font = F({ bold: true, size: 15, color: { argb: 'FF' + sp.titleColor } })
+      t.alignment = { horizontal: sp.titleAlign, vertical: 'middle' }
+    }
     if (sp.side) {
       const s = ws.getCell(r, last)
       s.value = sp.side
@@ -237,7 +301,7 @@ export async function exportExcel({ company, ym, groups, withObs, base, cfg, evo
 }
 
 // ---------- PDF ----------
-export async function exportPdf({ company, ym, groups, withObs, base, cfg, evoFont = 'arial', blank = false }) {
+export async function exportPdf({ company, ym, groups, withObs, base, cfg, evoFont = 'arial', blank = false, headerMonth = 'auto' }) {
   const ef = FONTS[evoFont] || FONTS.arial
   const { jsPDF } = await import('jspdf')
   const atMod = await import('jspdf-autotable')
@@ -258,19 +322,30 @@ export async function exportPdf({ company, ym, groups, withObs, base, cfg, evoFo
 
   groups.forEach(({ patient, rows }, gi) => {
     if (gi) pdf.addPage()
-    const sp = spec(cfg, company, ym, patient)
+    const sp = spec(cfg, company, ym, patient, headerMonth)
     if (blank) sp.minRows = Math.max(sp.minRows, 25)
     const line = hexRgb(sp.line)
     const font = sp.pdfFont
     let y = 34
+    const lpt = LOGO_PT[cfg.logoSize] || LOGO_PT.md
     if (logo) {
-      const h = 50, w = (logo.w / logo.h) * h
+      const h = lpt, w = (logo.w / logo.h) * h
       const x = sp.logoSide === 'right' ? W - M - w : sp.logoSide === 'center' ? (W - w) / 2 : M
       pdf.addImage(logo.dataUrl, logo.ext === 'png' ? 'PNG' : 'JPEG', x, y, w, h)
     }
-    y += 76
+    y += (logo ? lpt : 0) + 26
     pdf.setFont(font, 'bold').setFontSize(sp.titleAlign === 'center' ? 16 : 13).setTextColor(...hexRgb(sp.titleColor))
-    pdf.text(sp.title, sp.titleAlign === 'center' ? W / 2 : M, y, { align: sp.titleAlign === 'center' ? 'center' : 'left' })
+    if (sp.titleLine) {
+      const pw = pdf.getTextWidth(`${sp.titleLine.prefix} `)
+      const lineW = Math.min(190, W - M * 2 - pw - 8)
+      const x0 = sp.titleAlign === 'center' ? (W - (pw + 4 + lineW)) / 2 : M
+      pdf.text(sp.titleLine.prefix, x0, y)
+      const lx1 = x0 + pw + 4
+      pdf.setDrawColor(...hexRgb(sp.line)).setLineWidth(0.8).line(lx1, y + 3, lx1 + lineW, y + 3)
+      if (sp.titleLine.value) pdf.text(sp.titleLine.value, lx1 + lineW / 2, y, { align: 'center' })
+    } else {
+      pdf.text(sp.title, sp.titleAlign === 'center' ? W / 2 : M, y, { align: sp.titleAlign === 'center' ? 'center' : 'left' })
+    }
     if (sp.side) pdf.setFontSize(13).text(sp.side, W - M, y, { align: 'right' })
     y += 24
     pdf.setFontSize(11).setTextColor(31, 41, 55)

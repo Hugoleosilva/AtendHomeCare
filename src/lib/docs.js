@@ -29,7 +29,7 @@ const SERIF_BLUE = { font: 'serif', line: '#2F5FA7', headFill: '#EAF1FB', headTe
 const BASE = {
   reintegrar: {
     id: 'reintegrar', name: 'Ficha de Frequência', fileWord: 'FREQUENCIA',
-    title: 'FICHA DE FREQUÊNCIA', titleAlign: 'center', headerText: '', logoSide: 'left',
+    title: 'FICHA DE FREQUÊNCIA', titleAlign: 'center', headerText: '', logoSide: 'left', logoSize: 'lg',
     fields: [[{ label: 'Paciente:', value: '{paciente}' }], [{ label: 'Convênio:', value: 'Fisio' }, { label: 'Mês de Ref.:', value: '{competencia}' }]],
     columns: [
       { h: 'Data', src: 'date', w: 15, align: 'center' }, { h: 'Especialidade', src: 'sigla', w: 20, align: 'center' },

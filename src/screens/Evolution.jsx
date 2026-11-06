@@ -18,6 +18,9 @@ export default function Evolution({ ym: initialYm, onBack }) {
   const [procs, setProcs] = useState([]) // vazio = todos
   const [withObs, setWithObs] = useState(false)
   const [docSel, setDocSel] = useState('')
+  const [hdrMode, setHdrMode] = useState('auto') // mês do cabeçalho: auto (do período) | custom | blank
+  const [hdrYm, setHdrYm] = useState(initialYm)
+  const [blankNoMonth, setBlankNoMonth] = useState(true) // documento em branco: mês sem preenchimento (só a linha)
   const [evoFont, setEvoFontState] = useState(() => { try { const f = localStorage.getItem('homecare:evofont'); return FONTS[f] ? f : 'arial' } catch { return 'arial' } })
   const setEvoFont = (f) => { setEvoFontState(f); try { localStorage.setItem('homecare:evofont', f) } catch { /* ignore */ } }
   const [editor, setEditor] = useState(null) // { cfg, isNew }
@@ -52,13 +55,14 @@ export default function Evolution({ ym: initialYm, onBack }) {
   const onDeleteDoc = (id) => { saveDocs(docs.filter((x) => x.id !== id)); setDocSel(''); setEditor(null) }
   const onResetDocs = () => { upsert('companies', { ...company, docs: undefined }); setDocSel(''); setEditor(null) }
 
+  const headerMonth = hdrMode === 'blank' ? 'blank' : hdrMode === 'custom' ? hdrYm : 'auto'
   const run = async (kind, blank = false) => {
     if (!blank && !groups.length) return setMsg('Nada para exportar com estes filtros.')
     setBusy(blank ? `${kind}-blank` : kind); setMsg('')
     try {
       const args = blank
-        ? { company, ym: refYm, groups: [{ patient: { id: 'blank', name: '' }, rows: [] }], withObs: false, cfg, evoFont, blank: true, base: `${fileBase({ company, ym: refYm, patients: [{ name: 'x' }], allSelected: true, cfg }).split('_').slice(0, -3).join('_')}_${cfg.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}_EM_BRANCO` }
-        : { company, ym: refYm, groups, withObs, cfg, evoFont, base: fileBase({ company, ym: refYm, patients: groups.map((g) => g.patient), allSelected: !sel.length, cfg }) }
+        ? { company, ym: refYm, groups: [{ patient: { id: 'blank', name: '' }, rows: [] }], withObs: false, cfg, evoFont, blank: true, headerMonth: blankNoMonth ? 'blank' : headerMonth, base: `${fileBase({ company, ym: refYm, patients: [{ name: 'x' }], allSelected: true, cfg }).split('_').slice(0, -3).join('_')}_${cfg.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}_EM_BRANCO` }
+        : { company, ym: refYm, groups, withObs, cfg, evoFont, headerMonth, base: fileBase({ company, ym: refYm, patients: groups.map((g) => g.patient), allSelected: !sel.length, cfg }) }
       await (kind === 'xlsx' ? exportExcel(args) : exportPdf(args))
       setMsg(`${args.base}.${kind} gerado.`)
     } catch (e) {
@@ -103,6 +107,11 @@ export default function Evolution({ ym: initialYm, onBack }) {
       <div className="inline" style={{ marginTop: 8 }}>
         <button className="link" onClick={() => setEditor({ cfg, isNew: false })}>✏️ Editar “{cfg?.name}”</button>
       </div>
+
+      <h2>Mês no cabeçalho do documento</h2>
+      <Chips small value={hdrMode} onChange={setHdrMode} options={[{ value: 'auto', label: 'Mesmo do período' }, { value: 'custom', label: 'Escolher outro mês' }, { value: 'blank', label: 'Em branco (preencher à mão)' }]} />
+      {hdrMode === 'custom' && <input type="month" style={{ marginTop: 8 }} value={hdrYm} onChange={(e) => e.target.value && setHdrYm(e.target.value)} />}
+      {hdrMode === 'blank' && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>O mês sai como uma linha vazia, como na ficha de papel.</div>}
 
       <h2>Fonte da evolução</h2>
       <Chips small value={evoFont} onChange={setEvoFont} options={Object.entries(FONTS).map(([value, f]) => ({ value, label: f.label }))} />
@@ -153,6 +162,9 @@ export default function Evolution({ ym: initialYm, onBack }) {
       <div className="card" style={{ marginTop: 14 }}>
         <b>Documento em branco</b>
         <div className="muted" style={{ fontSize: 13, margin: '4px 0 10px' }}>“{cfg?.name}” com logo, título e linhas vazias, sem dados de paciente. Útil para preencher à mão, repor uma via perdida ou fazer um complemento de última hora.</div>
+        <label className="inline" style={{ margin: '0 0 10px' }}>
+          <input type="checkbox" checked={blankNoMonth} onChange={(e) => setBlankNoMonth(e.target.checked)} style={{ width: 22, height: 22 }} /> Deixar o mês sem preenchimento (só a linha, para escrever à mão)
+        </label>
         <div className="actions" style={{ marginTop: 0 }}>
           <button className="btn ghost" disabled={!!busy || !cfg} onClick={() => run('xlsx', true)}>{busy === 'xlsx-blank' ? 'Gerando…' : 'Em branco (Excel)'}</button>
           <button className="btn ghost" disabled={!!busy || !cfg} onClick={() => run('pdf', true)}>{busy === 'pdf-blank' ? 'Gerando…' : 'Em branco (PDF)'}</button>
