@@ -288,3 +288,9 @@ textarea { min-height: 90px; resize: vertical; }
 .login-btn[disabled] { opacity: 0.5; box-shadow: none; cursor: not-allowed; }
 .login-foot { margin-top: 16px; font-size: 12px; color: var(--muted); }
 @media (min-width: 600px) { .login-theme .tlabel { display: inline; } .login-card { padding: 40px 36px 26px; } .login-logo { width: 190px; } }
+
+/* campo de horário (hora : minuto) */
+.timefield { display: inline-flex; align-items: center; gap: 8px; }
+.timefield select { width: 88px; min-height: 46px; padding: 0 10px; text-align: center; text-align-last: center; }
+.timefield > span { font-size: 20px; font-weight: 600; color: var(--muted); }
+.timefield select[disabled] { opacity: 0.55; }

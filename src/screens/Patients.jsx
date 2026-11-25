@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { companyOf, patientMonth, planValue, statusOf, uid } from '../lib/core'
 import { WD_SHORT, addMonths, brl, fmtBR, fmtMonth, fmtShort, today } from '../lib/dates'
 import { useStore } from '../lib/store'
-import { Back, Chips, Field, PeriodNav, Sheet } from '../ui'
+import { Back, Chips, Field, PeriodNav, Sheet, TimeField } from '../ui'
 
 const scheduleText = (p) => {
   const s = p.schedule || {}
@@ -255,7 +255,7 @@ export function PatientForm({ id, defaultDate, onDone, onCancel }) {
       <label className="inline" style={{ margin: '8px 0' }}>
         <input type="checkbox" checked={withTime} onChange={(e) => setWithTime(e.target.checked)} style={{ width: 22, height: 22 }} /> Definir horário (opcional)
       </label>
-      {withTime && <input type="time" value={f.schedule.time || ''} onChange={(e) => setSched({ time: e.target.value })} />}
+      {withTime && <TimeField value={f.schedule.time || ''} onChange={(v) => setSched({ time: v })} ariaLabel="Horário do atendimento" />}
 
       <h2>Procedimentos e valores</h2>
       {f.items.map((it, n) => (
