@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ABSENCE_REASONS, companyOf, competencyOf, isScheduled, planValue, recKey, saveNotes, setStatus } from '../lib/core'
 import { addDays, brl, fmtBR, fmtLongDate, fmtMonth, fmtShort, today } from '../lib/dates'
 import { useStore } from '../lib/store'
-import { Chips, Sheet, TimeField } from '../ui'
+import { Chips, Sheet } from '../ui'
 
 const OPTIONS = [
   { v: 'done', e: '✅', t: 'Atendido' },
@@ -91,7 +91,7 @@ export default function StatusSheet({ entry, onClose, onOpenPatient }) {
         <div>
           <label className="f"><span>Dia da reposição</span><input type="date" value={swapTo} onChange={(e) => setSwapTo(e.target.value)} /></label>
           <label className="f"><span>Horário da reposição (opcional)</span>
-            <div className="inline"><TimeField value={swapTime} onChange={setSwapTime} ariaLabel="Horário da reposição" />{swapTime && <button className="chip small" onClick={() => setSwapTime('')}>Sem horário</button>}</div>
+            <div className="inline"><input type="time" value={swapTime} onChange={(e) => setSwapTime(e.target.value)} />{swapTime && <button className="chip small" onClick={() => setSwapTime('')}>Sem horário</button>}</div>
           </label>
           <span className="lbl">Motivo (opcional)</span>
           <Chips small options={ABSENCE_REASONS.filter((r) => r !== 'Outro').map((r) => ({ value: r, label: r }))} value={reason} onChange={setReason} />
@@ -100,7 +100,7 @@ export default function StatusSheet({ entry, onClose, onOpenPatient }) {
       )}
 
       <label className="f"><span>Horário deste atendimento (opcional) · padrão {patient.schedule?.time || 'sem horário'}</span>
-        <div className="inline"><TimeField value={time} onChange={setTime} ariaLabel="Horário deste atendimento" />{time && <button className="chip small" onClick={() => setTime('')}>Padrão</button>}</div>
+        <div className="inline"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} />{time && <button className="chip small" onClick={() => setTime('')}>Padrão</button>}</div>
       </label>
       <label className="f"><span>Evolução do paciente</span><textarea value={evolution} onChange={(e) => setEvolution(e.target.value)} placeholder="Como o paciente evoluiu nesta sessão…" /></label>
       <label className="f"><span>Observações (ocorrências fora da sessão)</span><textarea value={observation} onChange={(e) => setObservation(e.target.value)} placeholder="Ex.: plano do paciente mudou, avisar a empresa…" /></label>

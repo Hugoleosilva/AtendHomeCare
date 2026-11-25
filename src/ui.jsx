@@ -18,31 +18,6 @@ export function Sheet({ onClose, children }) {
   )
 }
 
-// Campo de horário próprio (hora e minuto), no lugar do seletor de relógio nativo do navegador,
-// que no celular corta os botões. Valor em 'HH:MM' ou '' (sem horário).
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
-const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
-
-export function TimeField({ value, onChange, ariaLabel = 'Horário' }) {
-  const [h = '', m = ''] = (value || '').split(':')
-  const minutes = m && !MINUTES.includes(m) ? [...MINUTES, m].sort() : MINUTES // mantém um minuto fora do passo de 5, se já existir
-  const setH = (nh) => onChange(nh ? `${nh}:${m || '00'}` : '')
-  const setM = (nm) => onChange(`${h || '08'}:${nm}`)
-  return (
-    <div className="timefield" role="group" aria-label={ariaLabel}>
-      <select value={h} onChange={(e) => setH(e.target.value)} aria-label="Hora">
-        <option value="">--</option>
-        {HOURS.map((x) => <option key={x} value={x}>{x}</option>)}
-      </select>
-      <span aria-hidden="true">:</span>
-      <select value={h ? m || '00' : ''} onChange={(e) => setM(e.target.value)} disabled={!h} aria-label="Minuto">
-        {!h && <option value="">--</option>}
-        {minutes.map((x) => <option key={x} value={x}>{x}</option>)}
-      </select>
-    </div>
-  )
-}
-
 // Alterna Claro ↔ Escuro (o modo Automático fica em Mais › Aparência).
 export function ThemeButton({ labeled = false, className = '' }) {
   const t = useTheme()
