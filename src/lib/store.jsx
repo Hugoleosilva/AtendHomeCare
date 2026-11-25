@@ -6,6 +6,7 @@ import { DEFAULT_STATUSES, uid } from './core'
 const KEY = 'homecare:v1'
 const DIRTY = 'homecare:dirty'
 const ROLE = 'homecare:role'
+const PREV = 'homecare:prev' // cópia local do que estava no aparelho antes de ser trocado pelo da nuvem
 
 // Cores das empresas: tons da logo (azul e rosa).
 const interne = () => ({ id: uid(), name: 'Interne', color: '#8fdcbc', logo: '/images/Interne.png', layout: 'interne', headerText: 'HOSPITAL DA AERONAUTICA', cutoffDay: 0, discounts: [] })
@@ -81,6 +82,9 @@ export function StoreProvider({ children }) {
   const forceReplace = useRef(false)
   const stateRef = useRef(state)
   const busy = useRef(false)
+  const serverSet = useRef(null) // último estado que veio da nuvem (não é alteração local)
+  const lastSeen = useRef(state)
+  const pushTimer = useRef(null)
   stateRef.current = state
 
   // cache local
@@ -98,7 +102,15 @@ export function StoreProvider({ children }) {
     } else {
       // o snapshot guarda o que está na nuvem; ajustes de versão (cores, Interne) viram diferença e sobem em seguida
       snap.current = snapOf({ ...seed(), ...r.body.meta, records: r.body.records })
-      setState(hydrate({ ...r.body.meta, records: r.body.records }))
+      const server = hydrate({ ...r.body.meta, records: r.body.records })
+      // se o aparelho tinha MAIS dados que a nuvem, guarda uma cópia local antes de trocar (dá para recuperar em Mais › Backup)
+      const local = stateRef.current
+      if (local.patients.length > server.patients.length || Object.keys(local.records).length > Object.keys(server.records).length) lsSet(PREV, JSON.stringify(local))
+      // IMPORTANTE: atualiza já a referência usada por push(). Antes ela só mudava depois da renderização,
+      // e push() calculava o que enviar com o estado ANTIGO, gravando-o por cima da nuvem.
+      stateRef.current = server
+      serverSet.current = server
+      setState(server)
     }
     hydrated.current = true
     return true
@@ -138,14 +150,14 @@ export function StoreProvider({ children }) {
   }, [pull])
 
   // alteração local → marca pendente e envia (com pequeno atraso)
-  const first = useRef(true)
   useEffect(() => {
-    if (first.current) { first.current = false; return }
-    if (auth.status !== 'ready') return
+    if (lastSeen.current === state) return // só mudou a sessão (login/checagem), não os dados
+    lastSeen.current = state
+    if (auth.status !== 'ready' || state === serverSet.current) return // veio da nuvem: não é alteração local
     lsSet(DIRTY, '1')
     setSync('saving')
-    const t = setTimeout(push, 700)
-    return () => clearTimeout(t)
+    clearTimeout(pushTimer.current)
+    pushTimer.current = setTimeout(push, 700)
   }, [state, auth.status, push])
 
   // tentativas periódicas, ao voltar a conexão e ao reabrir o app
@@ -201,9 +213,16 @@ export function StoreProvider({ children }) {
     return { ...s, [col]: i >= 0 ? list.map((x) => (x.id === item.id ? item : x)) : [...list, item] }
   }), [])
   const remove = useCallback((col, id) => setState((s) => ({ ...s, [col]: s[col].filter((x) => x.id !== id) })), [])
+  // recupera a cópia local guardada antes de o aparelho ser sincronizado com uma nuvem com menos dados
+  const restoreLocalPrev = useCallback(() => {
+    const raw = lsGet(PREV)
+    if (!raw) return false
+    try { setState(hydrate(JSON.parse(raw))); return true } catch { return false }
+  }, [])
+  const reloadFromCloud = useCallback(() => { lsSet(DIRTY, null); window.location.reload() }, [])
   const replaceAll = useCallback((data) => { forceReplace.current = true; setState(hydrate(data)) }, [])
 
-  const value = useMemo(() => ({ state, update, upsert, remove, replaceAll, auth, login, logout, sync, retrySync: push }), [state, update, upsert, remove, replaceAll, auth, login, logout, sync, push])
+  const value = useMemo(() => ({ state, update, upsert, remove, replaceAll, auth, login, logout, sync, retrySync: push, restoreLocalPrev, reloadFromCloud }), [state, update, upsert, remove, replaceAll, auth, login, logout, sync, push, restoreLocalPrev, reloadFromCloud])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

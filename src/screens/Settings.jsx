@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { uid } from '../lib/core'
 import { useStore } from '../lib/store'
 import { setTheme, useTheme } from '../lib/theme'
@@ -194,9 +194,31 @@ export function ProceduresScreen({ onBack }) {
 
 // ---------------- Backup -----------------
 export function BackupScreen({ onBack }) {
-  const { state, replaceAll, auth } = useStore()
+  const { state, replaceAll, auth, restoreLocalPrev, reloadFromCloud } = useStore()
   const ref = useRef()
   const [msg, setMsg] = useState('')
+  const [hist, setHist] = useState(null) // cópias da nuvem (só administrador)
+  const [busy, setBusy] = useState(false)
+  let prev = null
+  try { const raw = localStorage.getItem('homecare:prev'); if (raw) { const p = JSON.parse(raw); prev = { patients: p.patients?.length || 0, records: Object.keys(p.records || {}).length } } } catch { /* ignore */ }
+
+  useEffect(() => {
+    if (auth.role !== 'admin') return
+    fetch('/api/history', { credentials: 'same-origin' }).then((r) => r.json()).then((d) => setHist(d.items || [])).catch(() => setHist([]))
+  }, [auth.role])
+
+  const restoreCloud = async (h) => {
+    if (!confirm(`Restaurar a cópia de ${new Date(h.savedAt).toLocaleString('pt-BR')} (${h.patients} pacientes, ${h.records} atendimentos)? O estado atual da nuvem também fica guardado.`)) return
+    setBusy(true)
+    try {
+      const r = await fetch('/api/history', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: h.id }) })
+      if (!r.ok) throw new Error()
+      reloadFromCloud()
+    } catch {
+      setMsg('Não foi possível restaurar essa cópia.')
+      setBusy(false)
+    }
+  }
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' })
     const a = document.createElement('a')
@@ -231,6 +253,27 @@ export function BackupScreen({ onBack }) {
           <input ref={ref} type="file" accept="application/json" hidden onChange={importJson} />
         </>
       ) : <div className="muted" style={{ fontSize: 13 }}>Restaurar backup é uma ação do administrador.</div>}
+      {prev && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <b>Cópia anterior deste aparelho</b>
+          <div className="muted" style={{ fontSize: 13, margin: '4px 0 10px' }}>Este aparelho tinha {prev.patients} paciente(s) e {prev.records} registro(s) antes de ser atualizado com a nuvem. Se algo sumiu, você pode recuperar.</div>
+          <button className="btn ghost block" onClick={() => { if (confirm('Recuperar a cópia anterior deste aparelho? Ela será enviada para a nuvem.')) setMsg(restoreLocalPrev() ? 'Cópia recuperada.' : 'Não foi possível recuperar.') }}>Recuperar cópia anterior</button>
+        </div>
+      )}
+      {auth.role === 'admin' && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <b>Histórico na nuvem</b>
+          <div className="muted" style={{ fontSize: 13, margin: '4px 0 10px' }}>Cópias automáticas do banco (a cada 10 minutos de uso e sempre que dados diminuem). Restaurar uma cópia troca os dados da nuvem por ela.</div>
+          {hist === null && <div className="muted">Carregando…</div>}
+          {hist?.length === 0 && <div className="muted">Ainda não há cópias.</div>}
+          {hist?.map((h) => (
+            <div className="kv" key={h.id} style={{ alignItems: 'center' }}>
+              <span style={{ fontSize: 14 }}>{new Date(h.savedAt).toLocaleString('pt-BR')}<span className="muted"> · {h.patients} pac. · {h.records} atend. · {h.reason}</span></span>
+              <button className="link" disabled={busy} onClick={() => restoreCloud(h)}>Restaurar</button>
+            </div>
+          ))}
+        </div>
+      )}
       {msg && <div className="card" style={{ marginTop: 12 }}>{msg}</div>}
     </>
   )
